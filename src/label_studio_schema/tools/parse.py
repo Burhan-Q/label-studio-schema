@@ -36,33 +36,27 @@ TYPE_CONVERT: dict[str, str] = {
 }
 
 
-def convert_arg_types(type_list:list[str], is_optional: bool, arg_default,):
-    if all(t in TYPE_CONVERT for t in type_list):  # could be literals
-        arg_types: str = "|".join([TYPE_CONVERT.get(str(t), "str") for t in type_list])
+def convert_arg_types(type_list: list[str], is_optional: bool, arg_default: str) -> tuple[str, str]:
+    arg_types = "|".join([TYPE_CONVERT.get(t, "str") for t in type_list])
 
-        if arg_types == "bool" and is_optional:
-            arg_default: bool = arg_default == "true" and arg_default != "false"
-            
-        if arg_types == "str" and is_optional:
-            arg_default: str = (
-                    f'"{arg_default}"'
-                    if arg_default not in ["...", "None"]
-                    else arg_default
-                )
+    if arg_types == "bool" and is_optional:
+        arg_default = arg_default == "true" and arg_default != "false"
+    elif arg_types == "str" and is_optional:
+        arg_default = (
+            f'"{arg_default}"' if arg_default not in ["...", "None"] else arg_default
+        )
 
-        if arg_types and is_optional:
-            arg_types: str = f"Optional[{arg_types}]"
-        
-    else:
-        arg_types: str = (
-                f"{'Optional[' if is_optional else ''}Literal["
-                + ", ".join([f'"{t}"' for t in type_list])
-                + f"]{']' if is_optional else ''}"
-            )
+    if not all(t in TYPE_CONVERT for t in type_list):
+        arg_types = (
+            f"{'Optional[' if is_optional else ''}Literal["
+            + ", ".join([f'"{t}"' for t in type_list])
+            + f"]{']' if is_optional else ''}"
+        )
         arg_default: str = f'"{arg_default}"'
-    
-    return arg_default, arg_types
+    elif is_optional:
+        arg_types: str = f"Optional[{arg_types}]"
 
+    return arg_default, arg_types
 
 
 def make_args(args: list[tuple[str]]) -> list[str]:
@@ -85,13 +79,18 @@ def make_args(args: list[tuple[str]]) -> list[str]:
             arg_default: str = "..."
 
         _types: list[str] = [t.strip("=") for t in arg_type.split("|")]
-        arg_default, arg_types = convert_arg_types(_types, is_opt, arg_default, )
+        arg_default, arg_types = convert_arg_types(
+            _types,
+            is_opt,
+            arg_default,
+        )
 
         str_args.append(
             f'{INDENT}{arg_name}: {arg_types} = Field({arg_default}, description="{arg_desc}")'
         )
 
     return str_args
+
 
 def files2keep(file: Path) -> bool:
     return (
@@ -135,7 +134,6 @@ for file in filter(files2keep, FILES):
         if meta_desc := TAG_DESC.search(comment):
             meta_desc: str = str(meta_desc.group(1)).strip() if meta_desc else ""
 
-
             args: list[tuple[str]] = TAG_ARG_RGX.findall(comment)
             if args:
                 arg_block: str = "\n".join(make_args(args))
@@ -151,9 +149,7 @@ for file in filter(files2keep, FILES):
                     else f'{INDENT}"""\n{INDENT}{meta_title}\n{INDENT}"""\n'
                 )
                 text_out: str = (
-                    f"class {file.stem}Tag(BaseModel):\n"
-                    f"{doc_str}"
-                    f"{arg_block}\n"
+                    f"class {file.stem}Tag(BaseModel):\n{doc_str}{arg_block}\n"
                 )
                 key = tag_dir + ".py"
                 if key in py_files:
