@@ -37,6 +37,24 @@ TYPE_CONVERT: dict[str, str] = {
 
 
 def convert_arg_types(type_list: list[str], is_optional: bool, arg_default: str) -> tuple[str, str]:
+    """
+    Converts a list of argument types to a string representation suitable for type hints,
+    and adjusts the default argument value based on the type and optionality.
+    
+    Arguments:
+    ---
+        type_list (list[str]):
+            A list of argument types as strings.
+        is_optional (bool):
+            A flag indicating whether the argument is optional.
+        arg_default (str):
+            The default value of the argument as a string.
+    
+    Returns:
+    ---
+        tuple[str, str]: A tuple containing the adjusted default argument value and the 
+                         string representation of the argument types.
+    """
     arg_types = "|".join([TYPE_CONVERT.get(t, "str") for t in type_list])
 
     if arg_types == "bool" and is_optional:
@@ -60,30 +78,32 @@ def convert_arg_types(type_list: list[str], is_optional: bool, arg_default: str)
 
 
 def make_args(args: list[tuple[str]]) -> list[str]:
-    is_opt = False
+    """
+    Converts a list of argument tuples into a list of formatted argument strings.
+    
+    Arguments:
+    ---
+        args (list[tuple[str]]):
+            A list of tuples where each tuple contains:
+                - arg_type: The type of the argument, which can be a single type or multiple types separated by '|'.
+                - arg_name: The name of the argument.
+                - arg_default: The default value of the argument, if any.
+                - arg_desc: The description of the argument.
+    
+    Returns:
+    ---
+        list[str]: A list of formatted argument strings suitable for use in a Pydantic model.
+    """
     str_args = []
-    for arg in args:
-        arg_type, arg_name, arg_default, arg_desc = arg
+    for arg_type, arg_name, arg_default, arg_desc in args:
+        arg_name: str = str(arg_name).strip()
+        arg_desc = str(arg_desc).strip().strip("- ").replace('"', "'")
+        arg_desc: str = arg_desc if str(arg_desc).endswith(".") else arg_desc + "."
+        is_opt: bool = "=" in arg_default
 
-        arg_name: str = str(arg_name).strip() if arg_name else ""
-        arg_desc = str(arg_desc).strip().strip("- ") if arg_desc else ""
-
-        arg_desc: str = arg_desc if arg_desc.endswith(".") else arg_desc + "."
-        arg_desc = arg_desc.replace('"', "'")
-        is_opt: bool = "=" in str(arg_default)
-
-        arg_default = str(arg_default).strip("").strip("=") if arg_default else None
-        if is_opt and arg_default is None:
-            arg_default: str = "None"
-        elif not is_opt and arg_default is None:
-            arg_default: str = "..."
-
+        arg_default: str = str(arg_default).strip("=").strip() if arg_default else ("None" if is_opt else "...")
         _types: list[str] = [t.strip("=") for t in arg_type.split("|")]
-        arg_default, arg_types = convert_arg_types(
-            _types,
-            is_opt,
-            arg_default,
-        )
+        arg_default, arg_types = convert_arg_types(_types, is_opt, arg_default)
 
         str_args.append(
             f'{INDENT}{arg_name}: {arg_types} = Field({arg_default}, description="{arg_desc}")'
@@ -93,70 +113,95 @@ def make_args(args: list[tuple[str]]) -> list[str]:
 
 
 def files2keep(file: Path) -> bool:
+    """
+    Determine if a file should be kept based on specific criteria.
+
+    Arguments:
+    ---
+        file (Path):
+            The file path to check.
+
+    Returns:
+    ---
+        bool: True if the file should be kept, False otherwise.
+
+    Criteria:
+    ---
+        - The file name does not contain double underscores ("__").
+        - The file name (case insensitive) is in the list of document files (DOCS_FILES).
+        - If the file name (case insensitive) is "view", its parent directory must be named "visual".
+    """
     return (
         "__" not in file.stem
         and file.stem.lower() in [f.stem.lower() for f in DOCS_FILES]
         and (file.parent.name == "visual" if file.stem.lower() == "view" else True)
     )  # NOTE object/RichText/view.jsx not properly filtered
 
+def main() -> None:
 
-base_imports: str = "\n".join(["from typing import Literal, Optional", ""])
-third_party_imports: str = "\n".join(["from pydantic import BaseModel, Field", ""])
-local_imports: str = "\n".join([""])
+    # Construct imports
+    BASE_IMPORTS: str = "\n".join(["from typing import Literal, Optional", ""])
+    THIRD_PARTY_IMPORTS: str = "\n".join(["from pydantic import BaseModel, Field", ""])
+    LOCAL_IMPORTS: str = "\n".join([""])
 
-_imports: LiteralString = (
-    base_imports + "\n" + third_party_imports + "\n" + local_imports
-)
+    _imports: LiteralString = (
+        BASE_IMPORTS + "\n" + THIRD_PARTY_IMPORTS + "\n" + LOCAL_IMPORTS
+    )
 
-py_files = {}
-for file in filter(files2keep, FILES):
-    text = file.read_text("utf-8")
-    tag_dir: str = file.parent.relative_to(TAGS_DIR).parts
-    tag_dir = tag_dir[0] if tag_dir else "control"
+    # Parse files
+    py_files = {}
+    for file in filter(files2keep, FILES):
+        text = file.read_text("utf-8")
+        tag_dir: str = file.parent.relative_to(TAGS_DIR).parts
+        tag_dir = tag_dir[0] if tag_dir else "control"
 
-    comment: re.Match[str] | None = MULTILINE_COMMENT.search(text)
+        comment: re.Match[str] | None = MULTILINE_COMMENT.search(text)
 
-    if comment is not None:
-        comment = str(comment.group(1)).strip()
-        comment += "\n" if not str(comment).endswith("\n") else ""
+        if comment is not None:
+            comment = str(comment.group(1)).strip()
+            comment += "\n" if not str(comment).endswith("\n") else ""
 
-        if name := TAG_NAME.search(comment):
-            name: str = str(name.group(1)).strip() if name else file.stem
+            if name := TAG_NAME.search(comment):
+                name: str = str(name.group(1)).strip() if name else file.stem
 
-        if meta_title := TAG_META_TITLE.search(comment):
-            meta_title: str = (
-                str(meta_title.group(1)).strip()
-                + ("" if str(meta_title.group()).endswith(".") else ".")
-                if meta_title
-                else ""
-            )
-
-        if meta_desc := TAG_DESC.search(comment):
-            meta_desc: str = str(meta_desc.group(1)).strip() if meta_desc else ""
-
-            args: list[tuple[str]] = TAG_ARG_RGX.findall(comment)
-            if args:
-                arg_block: str = "\n".join(make_args(args))
-            else:
-                arg_block = ""
-
-            if arg_block:
-                if not (meta_title or meta_desc):
-                    meta_title: str = str(comment).splitlines()[0].strip("*").strip()
-                doc_str = (
-                    f'{INDENT}"""\n{INDENT}{meta_title}\n\n{INDENT}{meta_desc}\n{INDENT}"""\n'
-                    if meta_desc
-                    else f'{INDENT}"""\n{INDENT}{meta_title}\n{INDENT}"""\n'
+            if meta_title := TAG_META_TITLE.search(comment):
+                meta_title: str = (
+                    str(meta_title.group(1)).strip()
+                    + ("" if str(meta_title.group()).endswith(".") else ".")
+                    if meta_title
+                    else ""
                 )
-                text_out: str = (
-                    f"class {file.stem}Tag(BaseModel):\n{doc_str}{arg_block}\n"
-                )
-                key = tag_dir + ".py"
-                if key in py_files:
-                    py_files[key] += f"\n\n{text_out}"
+
+            if meta_desc := TAG_DESC.search(comment):
+                meta_desc: str = str(meta_desc.group(1)).strip() if meta_desc else ""
+
+                args: list[tuple[str]] = TAG_ARG_RGX.findall(comment)
+                if args:
+                    arg_block: str = "\n".join(make_args(args))
                 else:
-                    py_files[key] = f"{_imports}\n" + text_out
+                    arg_block = ""
 
-# Write to files
-for k, v in py_files.items():
-    (ROOT / k).write_text(v, "utf-8")
+                if arg_block:
+                    if not (meta_title or meta_desc):
+                        meta_title: str = str(comment).splitlines()[0].strip("*").strip()
+                    doc_str = (
+                        f'{INDENT}"""\n{INDENT}{meta_title}\n\n{INDENT}{meta_desc}\n{INDENT}"""\n'
+                        if meta_desc
+                        else f'{INDENT}"""\n{INDENT}{meta_title}\n{INDENT}"""\n'
+                    )
+                    text_out: str = (
+                        f"class {file.stem}Tag(BaseModel):\n{doc_str}{arg_block}\n"
+                    )
+                    key = tag_dir + ".py"
+                    if key in py_files:
+                        py_files[key] += f"\n\n{text_out}"
+                    else:
+                        py_files[key] = f"{_imports}\n" + text_out
+
+    # Write to files
+    for k, v in py_files.items():
+        (ROOT / k).write_text(v, "utf-8")
+
+
+if __name__ == "__main__":
+    main()
