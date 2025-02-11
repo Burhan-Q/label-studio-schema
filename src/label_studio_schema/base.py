@@ -12,6 +12,7 @@ class BaseTag(BaseModel):
         xml(no_defaults: bool = False) -> str:
             Convert the tag object to an XML string.
     """
+
     def xml(self, no_defaults: bool = False) -> str:
         """
         Converts the model instance into an XML string representation.
@@ -35,7 +36,7 @@ class BaseTag(BaseModel):
 class Control(BaseTag):
     """
     Tags that you can use to annotate the objects. For example, use labels for semantic and named entity tasks, choices for classification tasks, textarea for transcription tasks, and more.
-    
+
     Attributes:
     ---
         name (str):
@@ -43,6 +44,7 @@ class Control(BaseTag):
         to_name (str):
             The name of the object to annotate.
     """
+
     name: str
     to_name: str
 
@@ -79,5 +81,6 @@ class Object(BaseTag):
         value (str):
             The value of the object tag object.
     """
+
     name: str
     value: str
